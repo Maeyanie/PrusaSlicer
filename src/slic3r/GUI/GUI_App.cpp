@@ -1022,12 +1022,11 @@ bool GUI_App::on_init_inner()
             std::string opt = app_config->get("notify_release");
             if (this->plater_ != nullptr && (opt == "all" || opt == "release")) {
                 if (*Semver::parse(SLIC3R_VERSION) < *Semver::parse(into_u8(evt.GetString()))) {
-                    std::string lang = current_language_code_safe().ToStdString();
                     this->plater_->get_notification_manager()->push_notification(NotificationType::NewAppAvailable
                         , NotificationManager::NotificationLevel::ImportantNotificationLevel
                         , Slic3r::format(_u8L("New release version %1% is available."), evt.GetString())
                         , _u8L("See Download page.")
-                        , [lang](wxEvtHandler* evnthndlr) {wxGetApp().open_browser_with_warning_dialog(Slic3r::format("https://www.prusa3d.com/downloads&lng=%1%", lang)); return true; }
+                        , [](wxEvtHandler* evnthndlr) {wxGetApp().open_web_page_localized("https://www.prusa3d.com/slicerweb"); return true; }
                     );
                 }
             }

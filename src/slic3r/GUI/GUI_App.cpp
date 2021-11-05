@@ -427,45 +427,6 @@ bool static check_old_linux_datadir(const wxString& app_name) {
 
 
 #ifdef _WIN32
-// Taken from PostProcessor.cpp:
-// https://blogs.msdn.microsoft.com/twistylittlepassagesallalike/2011/04/23/everyone-quotes-command-line-arguments-the-wrong-way/
-// This routine appends the given argument to a command line such that CommandLineToArgvW will return the argument string unchanged.
-// Arguments in a command line should be separated by spaces; this function does not add these spaces.
-// Argument    - Supplies the argument to encode.
-// CommandLine - Supplies the command line to which we append the encoded argument string.
-static void quote_argv_winapi(const std::wstring& argument, std::wstring& commmand_line_out)
-{
-    // Don't quote unless we actually need to do so --- hopefully avoid problems if programs won't parse quotes properly.
-    if (argument.empty() == false && argument.find_first_of(L" \t\n\v\"") == argument.npos)
-        commmand_line_out.append(argument);
-    else {
-        commmand_line_out.push_back(L'"');
-        for (auto it = argument.begin(); ; ++it) {
-            unsigned number_backslashes = 0;
-            while (it != argument.end() && *it == L'\\') {
-                ++it;
-                ++number_backslashes;
-            }
-            if (it == argument.end()) {
-                // Escape all backslashes, but let the terminating double quotation mark we add below be interpreted as a metacharacter.
-                commmand_line_out.append(number_backslashes * 2, L'\\');
-                break;
-            }
-            else if (*it == L'"') {
-                // Escape all backslashes and the following double quotation mark.
-                commmand_line_out.append(number_backslashes * 2 + 1, L'\\');
-                commmand_line_out.push_back(*it);
-            }
-            else {
-                // Backslashes aren't special here.
-                commmand_line_out.append(number_backslashes, L'\\');
-                commmand_line_out.push_back(*it);
-            }
-        }
-        commmand_line_out.push_back(L'"');
-    }
-}
-
 static bool run_updater_win()
 {
     // find updater exe
@@ -474,12 +435,8 @@ static bool run_updater_win()
         if (dir_entry.path().filename() == "prusaslicer-updater.exe") {
             // run updater. Original args: /silent -restartapp prusa-slicer.exe -startappfirst
 
-            std::wstring wcmd;
             // Using quoted string as mentioned in CreateProcessW docs.
-            // escape quotes and backlashes inside path, then quote whole path
-            quote_argv_winapi(dir_entry.path().wstring(), wcmd);
-            wcmd = L"\"" + wcmd + L"\"";
-            // arguments
+            std::wstring wcmd = L"\"" + dir_entry.path().wstring() + L"\"";
             wcmd += L" /silent";
 
             // additional information
@@ -507,6 +464,8 @@ static bool run_updater_win()
                 CloseHandle(pi.hProcess);
                 CloseHandle(pi.hThread);
                 return true;
+            } else {
+                BOOST_LOG_TRIVIAL(error) << "Failed to start prusaslicer-updater.exe with command " << wcmd;
             }
             break;
         }

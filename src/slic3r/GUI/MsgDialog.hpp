@@ -41,10 +41,9 @@ protected:
 		HORIZ_SPACING = 5,
 	};
 
-	// button_id is an id of a button that can be added by default, use wxID_NONE to disable
-	MsgDialog(wxWindow *parent, const wxString &title, const wxString &headline, wxWindowID button_id = wxID_OK, wxBitmap bitmap = wxNullBitmap);
+	MsgDialog(wxWindow *parent, const wxString &title, const wxString &headline, long style = wxOK, wxBitmap bitmap = wxNullBitmap);
 
-	void add_btn(wxWindowID btn_id, bool set_focus = false);
+	void add_btn(wxWindowID btn_id, bool set_focus = false, const wxString& label = wxString());
 	void apply_style(long style);
 	void finalize();
 
@@ -98,7 +97,7 @@ public:
 				const wxPoint& pos = wxDefaultPosition,
 				const wxSize& size = wxDefaultSize,
 				long style = wxLI_HORIZONTAL,
-				const wxString& name = wxASCII_STR(wxTextCtrlNameStr))
+				const wxString& name = wxString::FromAscii(wxTextCtrlNameStr))
 	: wxTextCtrl(parent, id, wxEmptyString, pos, size!=wxDefaultSize ? size : (style == wxLI_HORIZONTAL ? wxSize(10, 1) : wxSize(1, 10)), wxSIMPLE_BORDER, wxDefaultValidator, name)
 	{
 		this->Enable(false);
@@ -268,7 +267,7 @@ public:
 		const wxPoint& pos = wxDefaultPosition,
 		const wxSize& size = wxDefaultSize,
 		long style = wxLI_HORIZONTAL,
-		const wxString& name = wxASCII_STR(wxStaticLineNameStr))
+		const wxString& name = wxString::FromAscii(wxStaticLineNameStr))
 		: wxStaticLine(parent, id, pos, size, style, name) {}
 	~StaticLine() {}
 };

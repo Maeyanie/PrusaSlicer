@@ -772,7 +772,11 @@ void PageMaterials::set_compatible_printers_html_window(const std::vector<std::s
             , second_line
             );
     } else {
-        wxString second_line = printer_names.empty() ? "" : format_wxstr(_L("Only the following installed printers are compatible with the selected %1%:"), materials->technology == T_FFF ? _L("filament") : _L("SLA material"));
+        wxString second_line;
+        if (!printer_names.empty())
+            second_line = (materials->technology == T_FFF ?
+                          _L("Only the following installed printers are compatible with the selected filaments") :
+                          _L("Only the following installed printers are compatible with the selected SLA materials")) + ":";
         text = wxString::Format(
             "<html>"
             "<style>"
@@ -2288,25 +2292,53 @@ void ConfigWizard::priv::select_default_materials_for_printer_models(Technology 
 {
     PageMaterials     *page_materials    = technology & T_FFF ? page_filaments : page_sla_materials;
     const std::string &appconfig_section = page_materials->materials->appconfig_section();
-
-    auto select_default_materials_for_printer_page = [this, appconfig_section, printer_models](PagePrinters *page_printers, Technology technology)
+    
+    // Following block was unnecessary. Its enough to iterate printer_models once. Not for every vendor printer page. 
+    // Filament is selected on same page for all printers of same technology.
+    /*
+    auto select_default_materials_for_printer_page = [this, appconfig_section, printer_models, technology](PagePrinters *page_printers, Technology technology)
     {
         const std::string vendor_id = page_printers->get_vendor_id();
         for (auto& pair : bundles)
             if (pair.first == vendor_id)
-            	for (const VendorProfile::PrinterModel *printer_model : printer_models)
-    		        for (const std::string &material : printer_model->default_materials)
-			            appconfig_new.set(appconfig_section, material, "1");
+                for (const VendorProfile::PrinterModel *printer_model : printer_models)
+                    for (const std::string &material : printer_model->default_materials)
+                        appconfig_new.set(appconfig_section, material, "1");
     };
 
     PagePrinters* page_printers = technology & T_FFF ? page_fff : page_msla;
     select_default_materials_for_printer_page(page_printers, technology);
 
-    for (const auto& printer : pages_3rdparty) 
+    for (const auto& printer : pages_3rdparty)
     {
         page_printers = technology & T_FFF ? printer.second.first : printer.second.second;
         if (page_printers)
             select_default_materials_for_printer_page(page_printers, technology);
+    }
+    */
+
+    // Iterate printer_models and select default materials. If none available -> msg to user.
+    std::vector<const VendorProfile::PrinterModel*> models_without_default;
+    for (const VendorProfile::PrinterModel* printer_model : printer_models) {
+        if (printer_model->default_materials.empty()) {
+            models_without_default.emplace_back(printer_model);
+        } else {
+            for (const std::string& material : printer_model->default_materials)
+                appconfig_new.set(appconfig_section, material, "1");
+        }
+    }
+
+    if (!models_without_default.empty()) {
+        std::string printer_names = "\n\n";
+        for (const VendorProfile::PrinterModel* printer_model : models_without_default) {
+            printer_names += printer_model->name + "\n";
+        }
+        printer_names += "\n\n";
+        std::string message = (technology & T_FFF ?
+            GUI::format(_L("Following printer profiles has no default filament: %1%Please select one manually."), printer_names) :
+            GUI::format(_L("Following printer profiles has no default material: %1%Please select one manually."), printer_names));
+        MessageDialog msg(q, message, _L("Notice"), wxOK);
+        msg.ShowModal();
     }
 
     update_materials(technology);
@@ -2488,7 +2520,7 @@ static std::string get_first_added_preset(const std::map<std::string, std::strin
 
 bool ConfigWizard::priv::apply_config(AppConfig *app_config, PresetBundle *preset_bundle, const PresetUpdater *updater, bool& apply_keeped_changes)
 {
-    wxString header, caption = _L("Configuration is editing from ConfigWizard");
+    wxString header, caption = _L("Configuration is edited in ConfigWizard");
     const auto enabled_vendors = appconfig_new.vendors();
 
     bool suppress_sla_printer = model_has_multi_part_objects(wxGetApp().model());
@@ -2561,7 +2593,7 @@ bool ConfigWizard::priv::apply_config(AppConfig *app_config, PresetBundle *prese
     }
     if (!check_unsaved_preset_changes)
         if ((check_unsaved_preset_changes = install_bundles.size() > 0))
-            header = _L_PLURAL("New vendor was installed and one of its printer will be activated", "New vendors were installed and one of theirs printer will be activated", install_bundles.size());
+            header = _L_PLURAL("A new vendor was installed and one of its printers will be activated", "New vendors were installed and one of theirs printers will be activated", install_bundles.size());
 
 #ifdef __linux__
     // Desktop integration on Linux
@@ -2590,7 +2622,7 @@ bool ConfigWizard::priv::apply_config(AppConfig *app_config, PresetBundle *prese
             break;
     }
 
-    if (snapshot && ! take_config_snapshot_cancel_on_error(*app_config, snapshot_reason, "", _u8L("Continue with applying configuration changes?")))
+    if (snapshot && ! take_config_snapshot_cancel_on_error(*app_config, snapshot_reason, "", _u8L("Do you want to continue changing the configuration?")))
         return false;
 
     if (check_unsaved_preset_changes &&

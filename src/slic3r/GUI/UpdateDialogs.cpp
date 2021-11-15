@@ -9,7 +9,6 @@
 #include <wx/event.h>
 #include <wx/stattext.h>
 #include <wx/button.h>
-#include <wx/hyperlink.h>
 #include <wx/statbmp.h>
 #include <wx/checkbox.h>
 
@@ -58,11 +57,13 @@ MsgUpdateSlic3r::MsgUpdateSlic3r(const Semver &ver_current, const Semver &ver_on
 		const std::string url_log = (boost::format(URL_CHANGELOG) % lang_code).str();
 		const wxString url_log_wx = from_u8(url_log);
 		auto *link_log = new wxHyperlinkCtrl(this, wxID_ANY, _(L("Open changelog page")), url_log_wx);
+		link_log->Bind(wxEVT_HYPERLINK, &MsgUpdateSlic3r::on_hyperlink, this);
 		content_sizer->Add(link_log);
 
 		const std::string url_dw = (boost::format(URL_DOWNLOAD) % lang_code).str();
 		const wxString url_dw_wx = from_u8(url_dw);
 		auto *link_dw = new wxHyperlinkCtrl(this, wxID_ANY, _(L("Open download page")), url_dw_wx);
+		link_dw->Bind(wxEVT_HYPERLINK, &MsgUpdateSlic3r::on_hyperlink, this);
 		content_sizer->Add(link_dw);
 	}
 
@@ -72,16 +73,20 @@ MsgUpdateSlic3r::MsgUpdateSlic3r(const Semver &ver_current, const Semver &ver_on
 	content_sizer->Add(cbox);
 	content_sizer->AddSpacer(VERT_SPACING);
 
-	Fit();
+	finalize();
 }
 
 MsgUpdateSlic3r::~MsgUpdateSlic3r() {}
+
+void MsgUpdateSlic3r::on_hyperlink(wxHyperlinkEvent& evt)
+{
+	wxGetApp().open_browser_with_warning_dialog(evt.GetURL());
+}
 
 bool MsgUpdateSlic3r::disable_version_check() const
 {
 	return cbox->GetValue();
 }
-
 
 // MsgUpdateConfig
 
@@ -133,12 +138,12 @@ MsgUpdateConfig::MsgUpdateConfig(const std::vector<Update> &updates, bool force_
 	content_sizer->Add(versions);
 	content_sizer->AddSpacer(2*VERT_SPACING);
 
-	add_btn(wxID_OK, true, force_before_wizard ? _L("Install") : "OK");
+	add_button(wxID_OK, true, force_before_wizard ? _L("Install") : "OK");
 	if (force_before_wizard) {
-		add_btn(wxID_CLOSE, false, _L("Don't install"));
-		static_cast<wxButton*>(FindWindowById(wxID_CLOSE, this))->Bind(wxEVT_BUTTON, [this](const wxCommandEvent&) { this->EndModal(wxID_CLOSE); });
+		auto* btn = add_button(wxID_CLOSE, false, _L("Don't install"));
+		btn->Bind(wxEVT_BUTTON, [this](const wxCommandEvent&) { this->EndModal(wxID_CLOSE); });
 	}
-	add_btn(wxID_CANCEL);
+	add_button(wxID_CANCEL);
 
 	finalize();
 }
@@ -190,9 +195,9 @@ MsgUpdateForced::MsgUpdateForced(const std::vector<Update>& updates) :
 	content_sizer->Add(versions);
 	content_sizer->AddSpacer(2 * VERT_SPACING);
 
-	add_btn(wxID_EXIT, false, wxString::Format(_L("Exit %s"), SLIC3R_APP_NAME));
+	add_button(wxID_EXIT, false, wxString::Format(_L("Exit %s"), SLIC3R_APP_NAME));
 	for (auto ID : { wxID_EXIT, wxID_OK })
-		static_cast<wxButton*>(FindWindowById(ID, this))->Bind(wxEVT_BUTTON, [this](const wxCommandEvent& evt) { this->EndModal(evt.GetId()); });
+		get_button(ID)->Bind(wxEVT_BUTTON, [this](const wxCommandEvent& evt) { this->EndModal(evt.GetId()); });
 
 	finalize();
 }
@@ -236,11 +241,11 @@ MsgDataIncompatible::MsgDataIncompatible(const std::unordered_map<std::string, w
 	content_sizer->Add(versions);
 	content_sizer->AddSpacer(2*VERT_SPACING);
 
-	add_btn(wxID_REPLACE, true, _L("Re-configure"));
-	add_btn(wxID_EXIT, false, wxString::Format(_L("Exit %s"), SLIC3R_APP_NAME));
+	add_button(wxID_REPLACE, true, _L("Re-configure"));
+	add_button(wxID_EXIT, false, wxString::Format(_L("Exit %s"), SLIC3R_APP_NAME));
 
 	for (auto ID : {wxID_EXIT, wxID_REPLACE})
-		static_cast<wxButton*>(FindWindowById(ID, this))->Bind(wxEVT_BUTTON, [this](const wxCommandEvent& evt) { this->EndModal(evt.GetId()); });
+		get_button(ID)->Bind(wxEVT_BUTTON, [this](const wxCommandEvent& evt) { this->EndModal(evt.GetId()); });
 
 	finalize();
 }

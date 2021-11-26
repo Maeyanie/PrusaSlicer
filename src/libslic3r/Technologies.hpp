@@ -80,9 +80,6 @@
 
 // Enable rendering modifiers and similar objects always as transparent
 #define ENABLE_MODIFIERS_ALWAYS_TRANSPARENT (1 && ENABLE_2_4_0_BETA1)
-// Enable the fix for the detection of the out of bed state for sinking objects
-// and detection of out of bed using the bed perimeter
-#define ENABLE_OUT_OF_BED_DETECTION_IMPROVEMENTS (1 && ENABLE_2_4_0_BETA1)
 
 
 //====================
@@ -94,5 +91,8 @@
 // an additional button can be used to set the keyboard focus into the slider
 // to allow the user to type in the desired value
 #define ENABLE_ENHANCED_IMGUI_SLIDER_FLOAT (1 && ENABLE_2_4_0_BETA2)
+// Enable fit print volume command for circular printbeds
+#define ENABLE_ENHANCED_PRINT_VOLUME_FIT (1 && ENABLE_2_4_0_BETA2)
+
 
 #endif // _prusaslicer_technologies_h_

@@ -726,6 +726,9 @@ void GCodeProcessorResult::reset() {
     filament_diameters = std::vector<float>(MIN_EXTRUDERS_COUNT, DEFAULT_FILAMENT_DIAMETER);
     filament_densities = std::vector<float>(MIN_EXTRUDERS_COUNT, DEFAULT_FILAMENT_DENSITY);
     custom_gcode_per_print_z = std::vector<CustomGCode::Item>();
+#if ENABLE_SPIRAL_VASE_LAYERS
+    spiral_vase_layers = std::vector<std::pair<float, std::pair<size_t, size_t>>>();
+#endif // ENABLE_SPIRAL_VASE_LAYERS
     time = 0;
 }
 #else
@@ -741,6 +744,9 @@ void GCodeProcessorResult::reset() {
     filament_diameters = std::vector<float>(MIN_EXTRUDERS_COUNT, DEFAULT_FILAMENT_DIAMETER);
     filament_densities = std::vector<float>(MIN_EXTRUDERS_COUNT, DEFAULT_FILAMENT_DENSITY);
     custom_gcode_per_print_z = std::vector<CustomGCode::Item>();
+#if ENABLE_SPIRAL_VASE_LAYERS
+    spiral_vase_layers = std::vector<std::pair<float, std::pair<size_t, size_t>>>();
+#endif // ENABLE_SPIRAL_VASE_LAYERS
 }
 #endif // ENABLE_GCODE_VIEWER_STATISTICS
 
@@ -842,11 +848,16 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
         m_result.filament_densities[i]  = static_cast<float>(config.filament_density.get_at(i));
     }
 
-    if ((m_flavor == gcfMarlinLegacy || m_flavor == gcfMarlinFirmware) && config.machine_limits_usage.value != MachineLimitsUsage::Ignore) {
+    if ((m_flavor == gcfMarlinLegacy || m_flavor == gcfMarlinFirmware || m_flavor == gcfRepRapFirmware) && config.machine_limits_usage.value != MachineLimitsUsage::Ignore) {
         m_time_processor.machine_limits = reinterpret_cast<const MachineEnvelopeConfig&>(config);
         if (m_flavor == gcfMarlinLegacy) {
             // Legacy Marlin does not have separate travel acceleration, it uses the 'extruding' value instead.
             m_time_processor.machine_limits.machine_max_acceleration_travel = m_time_processor.machine_limits.machine_max_acceleration_extruding;
+        }
+        if (m_flavor == gcfRepRapFirmware) {
+            // RRF does not support setting min feedrates. Set them to zero.
+            m_time_processor.machine_limits.machine_min_travel_rate.values.assign(m_time_processor.machine_limits.machine_min_travel_rate.size(), 0.);
+            m_time_processor.machine_limits.machine_min_extruding_rate.values.assign(m_time_processor.machine_limits.machine_min_extruding_rate.size(), 0.);
         }
     }
 
@@ -882,6 +893,18 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
         m_first_layer_height = std::abs(first_layer_height->value);
 
     m_result.max_print_height = config.max_print_height;
+
+#if ENABLE_SPIRAL_VASE_LAYERS
+    const ConfigOptionBool* spiral_vase = config.option<ConfigOptionBool>("spiral_vase");
+    if (spiral_vase != nullptr)
+        m_spiral_vase_active = spiral_vase->value;
+#endif // ENABLE_SPIRAL_VASE_LAYERS
+
+#if ENABLE_Z_OFFSET_CORRECTION
+    const ConfigOptionFloat* z_offset = config.option<ConfigOptionFloat>("z_offset");
+    if (z_offset != nullptr)
+        m_z_offset = z_offset->value;
+#endif // ENABLE_Z_OFFSET_CORRECTION
 }
 
 void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
@@ -1009,7 +1032,7 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
     if (machine_limits_usage != nullptr)
         use_machine_limits = machine_limits_usage->value != MachineLimitsUsage::Ignore;
 
-    if (use_machine_limits && (m_flavor == gcfMarlinLegacy || m_flavor == gcfMarlinFirmware)) {
+    if (use_machine_limits && (m_flavor == gcfMarlinLegacy || m_flavor == gcfMarlinFirmware || m_flavor == gcfRepRapFirmware)) {
         const ConfigOptionFloats* machine_max_acceleration_x = config.option<ConfigOptionFloats>("machine_max_acceleration_x");
         if (machine_max_acceleration_x != nullptr)
             m_time_processor.machine_limits.machine_max_acceleration_x.values = machine_max_acceleration_x->values;
@@ -1076,12 +1099,22 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
 
 
         const ConfigOptionFloats* machine_min_extruding_rate = config.option<ConfigOptionFloats>("machine_min_extruding_rate");
-        if (machine_min_extruding_rate != nullptr)
+        if (machine_min_extruding_rate != nullptr) {
             m_time_processor.machine_limits.machine_min_extruding_rate.values = machine_min_extruding_rate->values;
+            if (m_flavor == gcfRepRapFirmware) {
+                // RRF does not support setting min feedrates. Set zero.
+                m_time_processor.machine_limits.machine_min_extruding_rate.values.assign(m_time_processor.machine_limits.machine_min_extruding_rate.size(), 0.);
+            }
+        }
 
         const ConfigOptionFloats* machine_min_travel_rate = config.option<ConfigOptionFloats>("machine_min_travel_rate");
-        if (machine_min_travel_rate != nullptr)
+        if (machine_min_travel_rate != nullptr) {
             m_time_processor.machine_limits.machine_min_travel_rate.values = machine_min_travel_rate->values;
+            if (m_flavor == gcfRepRapFirmware) {
+                // RRF does not support setting min feedrates. Set zero.
+                m_time_processor.machine_limits.machine_min_travel_rate.values.assign(m_time_processor.machine_limits.machine_min_travel_rate.size(), 0.);
+            }
+        }
     }
 
     for (size_t i = 0; i < static_cast<size_t>(PrintEstimatedStatistics::ETimeMode::Count); ++i) {
@@ -1115,6 +1148,18 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
     const ConfigOptionFloat* max_print_height = config.option<ConfigOptionFloat>("max_print_height");
     if (max_print_height != nullptr)
         m_result.max_print_height = max_print_height->value;
+
+#if ENABLE_SPIRAL_VASE_LAYERS
+    const ConfigOptionBool* spiral_vase = config.option<ConfigOptionBool>("spiral_vase");
+    if (spiral_vase != nullptr)
+        m_spiral_vase_active = spiral_vase->value;
+#endif // ENABLE_SPIRAL_VASE_LAYERS
+
+#if ENABLE_Z_OFFSET_CORRECTION
+    const ConfigOptionFloat* z_offset = config.option<ConfigOptionFloat>("z_offset");
+    if (z_offset != nullptr)
+        m_z_offset = z_offset->value;
+#endif // ENABLE_Z_OFFSET_CORRECTION
 }
 
 void GCodeProcessor::enable_stealth_time_estimator(bool enabled)
@@ -1145,6 +1190,9 @@ void GCodeProcessor::reset()
     m_forced_height = 0.0f;
     m_mm3_per_mm = 0.0f;
     m_fan_speed = 0.0f;
+#if ENABLE_Z_OFFSET_CORRECTION
+    m_z_offset = 0.0f;
+#endif // ENABLE_Z_OFFSET_CORRECTION
 
     m_extrusion_role = erNone;
     m_extruder_id = 0;
@@ -1176,6 +1224,10 @@ void GCodeProcessor::reset()
     m_last_default_color_id = 0;
 
     m_options_z_corrector.reset();
+
+#if ENABLE_SPIRAL_VASE_LAYERS
+    m_spiral_vase_active = false;
+#endif // ENABLE_SPIRAL_VASE_LAYERS
 
 #if ENABLE_GCODE_VIEWER_DATA_CHECKING
     m_mm3_per_mm_compare.reset();
@@ -1865,6 +1917,16 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
     // layer change tag
     if (comment == reserved_tag(ETags::Layer_Change)) {
         ++m_layer_id;
+#if ENABLE_SPIRAL_VASE_LAYERS
+        if (m_spiral_vase_active) {
+            assert(!m_result.moves.empty());
+            size_t move_id = m_result.moves.size() - 1;
+            if (!m_result.spiral_vase_layers.empty() && m_end_position[Z] == m_result.spiral_vase_layers.back().first)
+                m_result.spiral_vase_layers.back().second.second = move_id;
+            else
+                m_result.spiral_vase_layers.push_back({ static_cast<float>(m_end_position[Z]), { move_id, move_id } });
+        }
+#endif // ENABLE_SPIRAL_VASE_LAYERS
         return;
     }
 
@@ -2412,7 +2474,7 @@ void GCodeProcessor::process_G1(const GCodeReader::GCodeLine& line)
     AxisCoords delta_pos;
     for (unsigned char a = X; a <= E; ++a) {
         delta_pos[a] = m_end_position[a] - m_start_position[a];
-        max_abs_delta = std::max(max_abs_delta, std::abs(delta_pos[a]));
+        max_abs_delta = std::max<float>(max_abs_delta, std::abs(delta_pos[a]));
     }
 
     // no displacement, return
@@ -2522,7 +2584,7 @@ void GCodeProcessor::process_G1(const GCodeReader::GCodeLine& line)
             if (curr.abs_axis_feedrate[a] != 0.0f) {
                 float axis_max_feedrate = get_axis_max_feedrate(static_cast<PrintEstimatedStatistics::ETimeMode>(i), static_cast<Axis>(a));
                 if (axis_max_feedrate != 0.0f)
-                    min_feedrate_factor = std::min(min_feedrate_factor, axis_max_feedrate / curr.abs_axis_feedrate[a]);
+                    min_feedrate_factor = std::min<float>(min_feedrate_factor, axis_max_feedrate / curr.abs_axis_feedrate[a]);
             }
         }
 
@@ -2657,7 +2719,11 @@ void GCodeProcessor::process_G1(const GCodeReader::GCodeLine& line)
             // the threshold value = 0.0625f == 0.25 * 0.25 is arbitrary, we may find some smarter condition later
 
             if ((new_pos - *first_vertex).squaredNorm() < 0.0625f) {
+#if ENABLE_Z_OFFSET_CORRECTION
+                set_end_position(0.5f * (new_pos + *first_vertex) + m_z_offset * Vec3f::UnitZ());
+#else
                 set_end_position(0.5f * (new_pos + *first_vertex));
+#endif // ENABLE_Z_OFFSET_CORRECTION
                 store_move_vertex(EMoveType::Seam);
                 set_end_position(curr_pos);
             }
@@ -2669,6 +2735,11 @@ void GCodeProcessor::process_G1(const GCodeReader::GCodeLine& line)
         m_seams_detector.activate(true);
         m_seams_detector.set_first_vertex(m_result.moves.back().position - m_extruder_offsets[m_extruder_id]);
     }
+
+#if ENABLE_SPIRAL_VASE_LAYERS
+    if (m_spiral_vase_active && !m_result.spiral_vase_layers.empty() && !m_result.moves.empty())
+        m_result.spiral_vase_layers.back().second.second = m_result.moves.size() - 1;
+#endif // ENABLE_SPIRAL_VASE_LAYERS
 
     // store move
     store_move_vertex(type);
@@ -3135,8 +3206,12 @@ void GCodeProcessor::store_move_vertex(EMoveType type)
         m_extrusion_role,
         m_extruder_id,
         m_cp_color.current,
+#if ENABLE_Z_OFFSET_CORRECTION
+        Vec3f(m_end_position[X], m_end_position[Y], m_processing_start_custom_gcode ? m_first_layer_height : m_end_position[Z] - m_z_offset) + m_extruder_offsets[m_extruder_id],
+#else
         Vec3f(m_end_position[X], m_end_position[Y], m_processing_start_custom_gcode ? m_first_layer_height : m_end_position[Z]) + m_extruder_offsets[m_extruder_id],
-        m_end_position[E] - m_start_position[E],
+#endif // ENABLE_Z_OFFSET_CORRECTION
+        static_cast<float>(m_end_position[E] - m_start_position[E]),
         m_feedrate,
         m_width,
         m_height,

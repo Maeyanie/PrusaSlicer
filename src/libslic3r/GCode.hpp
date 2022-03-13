@@ -10,6 +10,7 @@
 #include "PrintConfig.hpp"
 #include "GCode/AvoidCrossingPerimeters.hpp"
 #include "GCode/CoolingBuffer.hpp"
+#include "GCode/FindReplace.hpp"
 #include "GCode/SpiralVase.hpp"
 #include "GCode/ToolOrdering.hpp"
 #include "GCode/WipeTower.hpp"
@@ -189,6 +190,13 @@ private:
         GCodeOutputStream(FILE *f, GCodeProcessor &processor) : f(f), m_processor(processor) {}
         ~GCodeOutputStream() { this->close(); }
 
+        // Set a find-replace post-processor to modify the G-code before GCodePostProcessor.
+        // It is being set to null inside process_layers(), because the find-replace process
+        // is being called on a secondary thread to improve performance.
+        void set_find_replace(GCodeFindReplace *find_replace, bool enabled) { m_find_replace_backup = find_replace; m_find_replace = enabled ? find_replace : nullptr; }
+        void find_replace_enable() { m_find_replace = m_find_replace_backup; }
+        void find_replace_supress() { m_find_replace = nullptr; }
+
         bool is_open() const { return f; }
         bool is_error() const;
         
@@ -208,8 +216,12 @@ private:
         void write_format(const char* format, ...);
 
     private:
-        FILE *f = nullptr;
-        GCodeProcessor &m_processor;
+        FILE             *f { nullptr };
+        // Find-replace post-processor to be called before GCodePostProcessor.
+        GCodeFindReplace *m_find_replace { nullptr };
+        // If suppressed, the backoup holds m_find_replace.
+        GCodeFindReplace *m_find_replace_backup { nullptr };
+        GCodeProcessor   &m_processor;
     };
     void            _do_export(Print &print, GCodeOutputStream &file, ThumbnailsGeneratorCallback thumbnail_cb);
 
@@ -393,6 +405,7 @@ private:
 
     std::unique_ptr<CoolingBuffer>      m_cooling_buffer;
     std::unique_ptr<SpiralVase>         m_spiral_vase;
+    std::unique_ptr<GCodeFindReplace>   m_find_replace;
 #ifdef HAS_PRESSURE_EQUALIZER
     std::unique_ptr<PressureEqualizer>  m_pressure_equalizer;
 #endif /* HAS_PRESSURE_EQUALIZER */

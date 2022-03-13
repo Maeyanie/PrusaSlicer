@@ -124,6 +124,7 @@ private:
 #ifdef _WIN32
     wxColour        m_color_highlight_label_default;
     wxColour        m_color_hovered_btn_label;
+    wxColour        m_color_default_btn_label;
     wxColour        m_color_highlight_default;
     wxColour        m_color_selected_btn_bg;
     bool            m_force_colors_update { false };
@@ -251,7 +252,7 @@ public:
     bool            has_unsaved_preset_changes() const;
     bool            has_current_preset_changes() const;
     void            update_saved_preset_from_current_preset();
-    std::vector<std::pair<unsigned int, std::string>> get_selected_presets() const;
+    std::vector<const PresetCollection*> get_active_preset_collections() const;
     bool            check_and_save_current_preset_changes(const wxString& caption, const wxString& header, bool remember_choice = true, bool use_dont_save_insted_of_discard = false);
     void            apply_keeped_preset_modifications();
     bool            check_and_keep_current_preset_changes(const wxString& caption, const wxString& header, int action_buttons, bool* postponed_apply_of_keeped_changes = nullptr);
@@ -269,7 +270,8 @@ public:
 
     virtual bool OnExceptionInMainLoop() override;
     // Calls wxLaunchDefaultBrowser if user confirms in dialog.
-    bool            open_browser_with_warning_dialog(const wxString& url, int flags = 0);
+    // Add "Rememeber my choice" checkbox to question dialog, when it is forced or a "suppress_hyperlinks" option has empty value
+    bool            open_browser_with_warning_dialog(const wxString& url, wxWindow* parent = nullptr, bool force_remember_choice = true, int flags = 0);
 #ifdef __APPLE__
     void            OSXStoreOpenFiles(const wxArrayString &files) override;
     // wxWidgets override to get an event on open files.
@@ -351,7 +353,9 @@ private:
     bool            select_language();
 
     bool            config_wizard_startup();
-	void            check_updates(const bool verbose);
+    // Returns true if the configuration is fine. 
+    // Returns true if the configuration is not compatible and the user decided to rather close the slicer instead of reconfiguring.
+	bool            check_updates(const bool verbose);
 
     bool            m_datadir_redefined { false }; 
 };

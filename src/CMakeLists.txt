@@ -14,6 +14,7 @@ add_subdirectory(Shiny)
 add_subdirectory(semver)
 add_subdirectory(libigl)
 add_subdirectory(hints)
+add_subdirectory(qoi)
 
 # Adding libnest2d project for bin packing...
 add_subdirectory(libnest2d)
@@ -82,7 +83,7 @@ if (SLIC3R_GUI)
     string(REGEX MATCH "wxexpat" WX_EXPAT_BUILTIN ${wxWidgets_LIBRARIES})
     if (EXPAT_FOUND AND NOT WX_EXPAT_BUILTIN)
         list(FILTER wxWidgets_LIBRARIES EXCLUDE REGEX expat)
-        list(APPEND wxWidgets_LIBRARIES ${EXPAT_LIBRARIES})
+        list(APPEND wxWidgets_LIBRARIES libexpat)
     endif ()
     
     # This is an issue in the new wxWidgets cmake build, doesn't deal with librt

@@ -1613,8 +1613,8 @@ void TabPrint::build()
         optgroup->append_single_option_line("max_volumetric_speed", "max-volumetric-speed_127176");
 
         optgroup = page->new_optgroup(L("Pressure equalizer (experimental)"));
-        optgroup->append_single_option_line("max_volumetric_extrusion_rate_slope_positive");
-        optgroup->append_single_option_line("max_volumetric_extrusion_rate_slope_negative");
+        optgroup->append_single_option_line("max_volumetric_extrusion_rate_slope_positive", "pressure-equlizer_331504");
+        optgroup->append_single_option_line("max_volumetric_extrusion_rate_slope_negative", "pressure-equlizer_331504");
 
     page = add_options_page(L("Multiple Extruders"), "funnel");
         optgroup = page->new_optgroup(L("Extruders"));
@@ -1672,8 +1672,6 @@ void TabPrint::build()
         optgroup->append_single_option_line("clip_multipart_objects");
 
         optgroup = page->new_optgroup(L("Arachne perimeter generator"));
-        optgroup->append_single_option_line("wall_add_middle_threshold");
-        optgroup->append_single_option_line("wall_split_middle_threshold");
         optgroup->append_single_option_line("wall_transition_angle");
         optgroup->append_single_option_line("wall_transition_filter_deviation");
         optgroup->append_single_option_line("wall_transition_length");

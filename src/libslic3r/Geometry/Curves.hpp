@@ -15,8 +15,8 @@ template<int Dimension, typename NumberType>
 struct PolynomialCurve {
     Eigen::MatrixXf coefficients;
 
-    Vec3f get_fitted_value(const NumberType value) const {
-        auto result = Vec<Dimension, NumberType>::Zero();
+    Vec<Dimension, NumberType> get_fitted_value(const NumberType& value) const {
+        Vec<Dimension, NumberType> result = Vec<Dimension, NumberType>::Zero();
         size_t order = this->coefficients.rows() - 1;
         auto x = NumberType(1.);
         for (size_t index = 0; index < order + 1; ++index, x *= value)
@@ -173,6 +173,19 @@ PiecewiseFittedCurve<Dimension, NumberType, Kernel> fit_curve(
     }
 
     return result;
+}
+
+
+template<int Dimension, typename NumberType>
+PiecewiseFittedCurve<Dimension, NumberType, LinearKernel<NumberType>>
+fit_linear_spline(
+        const std::vector<Vec<Dimension, NumberType>> &observations,
+        std::vector<NumberType> observation_points,
+        std::vector<NumberType> weights,
+        size_t segments_count,
+        size_t endpoints_level_of_freedom = 0) {
+    return fit_curve<LinearKernel<NumberType>>(observations, observation_points, weights, segments_count,
+            endpoints_level_of_freedom);
 }
 
 template<int Dimension, typename NumberType>

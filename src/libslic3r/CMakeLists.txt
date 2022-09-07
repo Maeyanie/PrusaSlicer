@@ -96,6 +96,8 @@ add_library(libslic3r STATIC
     Format/SL1.cpp
     Format/SML.hpp
     Format/SML.cpp
+    Format/STEP.hpp
+    Format/STEP.cpp
     GCode/ThumbnailData.cpp
     GCode/ThumbnailData.hpp
     GCode/Thumbnails.cpp
@@ -359,7 +361,7 @@ find_package(CGAL REQUIRED)
 cmake_policy(POP)
 
 add_library(libslic3r_cgal STATIC MeshBoolean.cpp MeshBoolean.hpp  TryCatchSignal.hpp
-    TryCatchSignal.cpp)
+    TryCatchSignal.cpp Geometry/VoronoiUtilsCgal.hpp Geometry/VoronoiUtilsCgal.cpp)
 target_include_directories(libslic3r_cgal PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 # Reset compile options of libslic3r_cgal. Despite it being linked privately, CGAL options
@@ -413,6 +415,11 @@ target_link_libraries(libslic3r
 	JPEG::JPEG
     qoi
     )
+
+if (APPLE)
+    # TODO: we need to fix notarization with the separate shared library
+    target_link_libraries(libslic3r OCCTWrapper)
+endif ()
 
 if (TARGET OpenVDB::openvdb)
     target_link_libraries(libslic3r OpenVDB::openvdb)

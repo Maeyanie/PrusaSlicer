@@ -66,6 +66,11 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "between_objects_gcode",
         "bridge_acceleration",
         "bridge_fan_speed",
+        "enable_dynamic_fan_speeds",
+        "overhang_fan_speed_0",
+        "overhang_fan_speed_1",
+        "overhang_fan_speed_2",
+        "overhang_fan_speed_3",
         "colorprint_heights",
         "cooling",
         "default_acceleration",
@@ -74,6 +79,7 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "duplicate_distance",
         "end_gcode",
         "end_filament_gcode",
+        "external_perimeter_acceleration",
         "extrusion_axis",
         "extruder_clearance_height",
         "extruder_clearance_radius",
@@ -125,10 +131,12 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "retract_speed",
         "single_extruder_multi_material_priming",
         "slowdown_below_layer_time",
+        "solid_infill_acceleration",
         "standby_temperature_delta",
         "start_gcode",
         "start_filament_gcode",
         "toolchange_gcode",
+        "top_solid_infill_acceleration",
         "thumbnails",
         "thumbnails_format",
         "use_firmware_retraction",
@@ -191,6 +199,7 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             || opt_key == "infill_first"
             || opt_key == "single_extruder_multi_material"
             || opt_key == "temperature"
+            || opt_key == "idle_temperature"
             || opt_key == "wipe_tower"
             || opt_key == "wipe_tower_width"
             || opt_key == "wipe_tower_brim_width"
@@ -222,6 +231,8 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
             osteps.emplace_back(posInfill);
             osteps.emplace_back(posSupportMaterial);
             steps.emplace_back(psSkirtBrim);
+        } else if (opt_key == "avoid_crossing_curled_overhangs") {
+            osteps.emplace_back(posEstimateCurledExtrusions);
         } else {
             // for legacy, if we can't handle this option let's invalidate all steps
             //FIXME invalidate all steps of all objects as well?
@@ -345,7 +356,7 @@ std::vector<ObjectID> Print::print_object_ids() const
 
 bool Print::has_infinite_skirt() const
 {
-    return (m_config.draft_shield == dsEnabled && m_config.skirts > 0) || (m_config.ooze_prevention && this->extruders().size() > 1);
+    return (m_config.draft_shield == dsEnabled && m_config.skirts > 0)/* || (m_config.ooze_prevention && this->extruders().size() > 1)*/;
 }
 
 bool Print::has_skirt() const
@@ -381,6 +392,16 @@ bool Print::sequential_print_horizontal_clearance_valid(const Print& print, Poly
 	        // FIXME: Arrangement has different parameters for offsetting (jtMiter, limit 2)
 	        // which causes that the warning will be showed after arrangement with the
 	        // appropriate object distance. Even if I set this to jtMiter the warning still shows up.
+#if ENABLE_WORLD_COORDINATE
+        Geometry::Transformation trafo = model_instance0->get_transformation();
+        trafo.set_offset({ 0.0, 0.0, model_instance0->get_offset().z() });
+          it_convex_hull = map_model_object_to_convex_hull.emplace_hint(it_convex_hull, model_object_id,
+              offset(print_object->model_object()->convex_hull_2d(trafo.get_matrix()),
+                  // Shrink the extruder_clearance_radius a tiny bit, so that if the object arrangement algorithm placed the objects
+                  // exactly by satisfying the extruder_clearance_radius, this test will not trigger collision.
+                  float(scale_(0.5 * print.config().extruder_clearance_radius.value - BuildVolume::BedEpsilon)),
+                  jtRound, scale_(0.1)).front());
+#else
             it_convex_hull = map_model_object_to_convex_hull.emplace_hint(it_convex_hull, model_object_id,
                 offset(print_object->model_object()->convex_hull_2d(
                     Geometry::assemble_transform({ 0.0, 0.0, model_instance0->get_offset().z() }, model_instance0->get_rotation(), model_instance0->get_scaling_factor(), model_instance0->get_mirror())),
@@ -388,10 +409,11 @@ bool Print::sequential_print_horizontal_clearance_valid(const Print& print, Poly
                     // exactly by satisfying the extruder_clearance_radius, this test will not trigger collision.
                     float(scale_(0.5 * print.config().extruder_clearance_radius.value - BuildVolume::BedEpsilon)),
                     jtRound, scale_(0.1)).front());
-        }
+#endif // ENABLE_WORLD_COORDINATE
+      }
 	    // Make a copy, so it may be rotated for instances.
 	    Polygon convex_hull0 = it_convex_hull->second;
-		const double z_diff = Geometry::rotation_diff_z(model_instance0->get_rotation(), print_object->instances().front().model_instance->get_rotation());
+		const double z_diff = Geometry::rotation_diff_z(model_instance0->get_matrix(), print_object->instances().front().model_instance->get_matrix());
 		if (std::abs(z_diff) > EPSILON)
 			convex_hull0.rotate(z_diff);
 	    // Now we check that no instance of convex_hull intersects any of the previously checked object instances.
@@ -460,6 +482,10 @@ std::string Print::validate(std::string* warning) const
 	        return L("Some objects are too tall and cannot be printed without extruder collisions.");
     }
 
+    if (m_config.avoid_crossing_perimeters && m_config.avoid_crossing_curled_overhangs) {
+        return L("Avoid crossing perimeters option and avoid crossing curled overhangs option cannot be both enabled together.");
+    }    
+
     if (m_config.spiral_vase) {
         size_t total_copies_count = 0;
         for (const PrintObject *object : m_objects)
@@ -472,6 +498,47 @@ std::string Print::validate(std::string* warning) const
         if (m_objects.front()->all_regions().size() > 1)
             return L("The Spiral Vase option can only be used when printing single material objects.");
     }
+
+    // Cache of layer height profiles for checking:
+    // 1) Whether all layers are synchronized if printing with wipe tower and / or unsynchronized supports.
+    // 2) Whether layer height is constant for Organic supports.
+    // 3) Whether build volume Z is not violated.
+    std::vector<std::vector<coordf_t>> layer_height_profiles;
+    auto layer_height_profile = [this, &layer_height_profiles](const size_t print_object_idx) -> const std::vector<coordf_t>& {
+        const PrintObject       &print_object = *m_objects[print_object_idx];
+        if (layer_height_profiles.empty())
+            layer_height_profiles.assign(m_objects.size(), std::vector<coordf_t>());
+        std::vector<coordf_t>   &profile      = layer_height_profiles[print_object_idx];
+        if (profile.empty())
+            PrintObject::update_layer_height_profile(*print_object.model_object(), print_object.slicing_parameters(), profile);
+        return profile;
+    };
+
+    // Checks that the print does not exceed the max print height
+    for (size_t print_object_idx = 0; print_object_idx < m_objects.size(); ++ print_object_idx) {
+        const PrintObject &print_object = *m_objects[print_object_idx];
+        //FIXME It is quite expensive to generate object layers just to get the print height!
+        if (auto layers = generate_object_layers(print_object.slicing_parameters(), layer_height_profile(print_object_idx));
+            ! layers.empty() && layers.back() > this->config().max_print_height + EPSILON) {
+            return L("The print is taller than the maximum allowed height. You might want to reduce the size of your model"
+                     " or change current print settings and retry.");
+        }
+    }
+
+    // Some of the objects has variable layer height applied by painting or by a table.
+    bool has_custom_layering = std::find_if(m_objects.begin(), m_objects.end(), 
+        [](const PrintObject *object) { return object->model_object()->has_custom_layering(); }) 
+        != m_objects.end();
+
+    // Custom layering is not allowed for tree supports as of now.
+    for (size_t print_object_idx = 0; print_object_idx < m_objects.size(); ++ print_object_idx)
+        if (const PrintObject &print_object = *m_objects[print_object_idx];
+            print_object.has_support_material() && print_object.config().support_material_style.value == smsOrganic &&
+            print_object.model_object()->has_custom_layering()) {
+            if (const std::vector<coordf_t> &layers = layer_height_profile(print_object_idx); ! layers.empty())
+                if (! check_object_layers_fixed(print_object.slicing_parameters(), layers))
+                    return L("Variable layer height is not supported with Organic supports.");
+        }
 
     if (this->has_wipe_tower() && ! m_objects.empty()) {
         // Make sure all extruders use same diameter filament and have the same nozzle diameter
@@ -492,27 +559,16 @@ std::string Print::validate(std::string* warning) const
             return L("The Wipe Tower is currently only supported for the Marlin, RepRap/Sprinter, RepRapFirmware and Repetier G-code flavors.");
         if (! m_config.use_relative_e_distances)
             return L("The Wipe Tower is currently only supported with the relative extruder addressing (use_relative_e_distances=1).");
-        if (m_config.ooze_prevention)
-            return L("Ooze prevention is currently not supported with the wipe tower enabled.");
+        if (m_config.ooze_prevention && m_config.single_extruder_multi_material)
+            return L("Ooze prevention is only supported with the wipe tower when 'single_extruder_multi_material' is off.");
         if (m_config.use_volumetric_e)
             return L("The Wipe Tower currently does not support volumetric E (use_volumetric_e=0).");
         if (m_config.complete_objects && extruders.size() > 1)
             return L("The Wipe Tower is currently not supported for multimaterial sequential prints.");
         
         if (m_objects.size() > 1) {
-            bool                                has_custom_layering = false;
-            std::vector<std::vector<coordf_t>>  layer_height_profiles;
-            for (const PrintObject *object : m_objects) {
-                has_custom_layering = ! object->model_object()->layer_config_ranges.empty() || ! object->model_object()->layer_height_profile.empty();
-                if (has_custom_layering) {
-                    layer_height_profiles.assign(m_objects.size(), std::vector<coordf_t>());
-                    break;
-                }
-            }
-            const SlicingParameters &slicing_params0 = m_objects.front()->slicing_parameters();
-            size_t            tallest_object_idx = 0;
-            if (has_custom_layering)
-                PrintObject::update_layer_height_profile(*m_objects.front()->model_object(), slicing_params0, layer_height_profiles.front());
+            const SlicingParameters     &slicing_params0       = m_objects.front()->slicing_parameters();
+            size_t                       tallest_object_idx    = 0;
             for (size_t i = 1; i < m_objects.size(); ++ i) {
                 const PrintObject       *object         = m_objects[i];
                 const SlicingParameters &slicing_params = object->slicing_parameters();
@@ -527,8 +583,9 @@ std::string Print::validate(std::string* warning) const
                 if (! equal_layering(slicing_params, slicing_params0))
                     return L("The Wipe Tower is only supported for multiple objects if they are sliced equally.");
                 if (has_custom_layering) {
-                    PrintObject::update_layer_height_profile(*object->model_object(), slicing_params, layer_height_profiles[i]);
-                    if (*(layer_height_profiles[i].end()-2) > *(layer_height_profiles[tallest_object_idx].end()-2))
+                    auto &lh         = layer_height_profile(i);
+                    auto &lh_tallest = layer_height_profile(tallest_object_idx);
+                    if (*(lh.end()-2) > *(lh_tallest.end()-2))
                         tallest_object_idx = i;
                 }
             }
@@ -604,10 +661,10 @@ std::string Print::validate(std::string* warning) const
                            "If support is to be printed with the current extruder (support_material_extruder == 0 or support_material_interface_extruder == 0), "
                            "all nozzles have to be of the same diameter.");
                 }
-                if (this->has_wipe_tower()) {
+                if (this->has_wipe_tower() && object->config().support_material_style != smsOrganic) {
     				if (object->config().support_material_contact_distance == 0) {
     					// Soluble interface
-    					if (object->config().support_material_contact_distance == 0 && ! object->config().support_material_synchronize_layers)
+    					if (! object->config().support_material_synchronize_layers)
     						return L("For the Wipe Tower to work with the soluble supports, the support layers need to be synchronized with the object layers.");
     				} else {
     					// Non-soluble interface
@@ -826,7 +883,13 @@ void Print::process()
     for (PrintObject *obj : m_objects)
         obj->ironing();
     for (PrintObject *obj : m_objects)
+        obj->generate_support_spots();
+    // check data from previous step, format the error message(s) and send alert to ui
+    alert_when_supports_needed();
+    for (PrintObject *obj : m_objects)
         obj->generate_support_material();
+    for (PrintObject *obj : m_objects)
+        obj->estimate_curled_extrusions();
     if (this->set_started(psWipeTower)) {
         m_wipe_tower_data.clear();
         m_tool_ordering.clear();
@@ -897,9 +960,9 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
         message = L("Generating G-code");
     this->set_status(90, message);
 
-    // The following line may die for multiple reasons.
-    GCode gcode;
-    gcode.do_export(this, path.c_str(), result, thumbnail_cb);
+    // Create GCode on heap, it has quite a lot of data.
+    std::unique_ptr<GCode> gcode(new GCode);
+    gcode->do_export(this, path.c_str(), result, thumbnail_cb);
     return path.c_str();
 }
 
@@ -1012,7 +1075,7 @@ void Print::_make_skirt()
         ExtrusionLoop eloop(elrSkirt);
         eloop.paths.emplace_back(ExtrusionPath(
             ExtrusionPath(
-                erSkirt,
+                ExtrusionRole::Skirt,
                 (float)mm3_per_mm,         // this will be overridden at G-code export time
                 flow.width(),
 				(float)first_layer_height  // this will be overridden at G-code export time
@@ -1044,6 +1107,8 @@ void Print::_make_skirt()
     for (Polygon &poly : offset(convex_hull, distance + 0.5f * float(scale_(spacing)), ClipperLib::jtRound, float(scale_(0.1))))
         append(m_skirt_convex_hull, std::move(poly.points));
 }
+
+
 
 Polygons Print::first_layer_islands() const
 {
@@ -1095,6 +1160,100 @@ void Print::finalize_first_layer_convex_hull()
     }
     append(m_first_layer_convex_hull.points, this->first_layer_wipe_tower_corners());
     m_first_layer_convex_hull = Geometry::convex_hull(m_first_layer_convex_hull.points);
+}
+
+void Print::alert_when_supports_needed()
+{
+    if (this->set_started(psAlertWhenSupportsNeeded)) {
+        BOOST_LOG_TRIVIAL(debug) << "psAlertWhenSupportsNeeded - start";
+        set_status(69, L("Alert if supports needed"));
+
+        auto issue_to_alert_message = [](SupportSpotsGenerator::SupportPointCause cause, bool critical) {
+            std::string message;
+            switch (cause) {
+            case SupportSpotsGenerator::SupportPointCause::LongBridge: message = L("long bridging extrusions"); break;
+            case SupportSpotsGenerator::SupportPointCause::FloatingBridgeAnchor: message = L("floating bridge anchors"); break;
+            case SupportSpotsGenerator::SupportPointCause::FloatingExtrusion:
+                if (critical) {
+                    message = L("collapsing overhang");
+                } else {
+                    message = L("loose extrusions");
+                }
+                break;
+            case SupportSpotsGenerator::SupportPointCause::SeparationFromBed: message = L("low bed adhesion"); break;
+            case SupportSpotsGenerator::SupportPointCause::UnstableFloatingPart: message = L("floating object part"); break;
+            case SupportSpotsGenerator::SupportPointCause::WeakObjectPart: message = L("thin fragile section"); break;
+            }
+
+            return  (critical ? "!" : "") + message;
+        };
+
+        // vector of pairs of object and its issues, where each issue is a pair of type and critical flag
+        std::vector<std::pair<const PrintObject *, std::vector<std::pair<SupportSpotsGenerator::SupportPointCause, bool>>>> objects_isssues;
+
+        for (const PrintObject *object : m_objects) {
+            std::unordered_set<const ModelObject *> checked_model_objects;
+            if (!object->has_support() && checked_model_objects.find(object->model_object()) == checked_model_objects.end()) {
+                if (object->m_shared_regions->generated_support_points.has_value()) {
+                    SupportSpotsGenerator::SupportPoints  supp_points = object->m_shared_regions->generated_support_points->support_points;
+                    SupportSpotsGenerator::PartialObjects partial_objects = object->m_shared_regions->generated_support_points
+                                                                                ->partial_objects;
+                    auto issues = SupportSpotsGenerator::gather_issues(supp_points, partial_objects);
+                    if (issues.size() > 0) {
+                        objects_isssues.emplace_back(object, issues);
+                    }
+                }
+                checked_model_objects.emplace(object->model_object());
+            }
+        }
+
+        bool recommend_brim = false;
+        std::map<std::pair<SupportSpotsGenerator::SupportPointCause, bool>, std::vector<const PrintObject *>> po_by_support_issues;
+        for (const auto &obj : objects_isssues) {
+            for (const auto &issue : obj.second) {
+                po_by_support_issues[issue].push_back(obj.first);
+                if (issue.first == SupportSpotsGenerator::SupportPointCause::SeparationFromBed && !obj.first->has_brim()){
+                    recommend_brim = true;
+                }
+            }
+        }
+
+        auto message = L("Detected print stability issues") + ": \n";
+        if (objects_isssues.size() > po_by_support_issues.size()) {
+            // there are more objects than causes, group by issues
+            for (const auto &issue : po_by_support_issues) {
+                message += "\n" + issue_to_alert_message(issue.first.first, issue.first.second) + "  >>  ";
+                for (const auto &obj : issue.second) {
+                    message += obj->m_model_object->name + ", ";
+                }
+                message.pop_back();
+                message.pop_back(); // remove ,
+                message += ".\n";
+            }
+        } else {
+            // more causes than objects, group by objects
+            for (const auto &obj : objects_isssues) {
+                message += "\n" + L("Object") + " " + obj.first->model_object()->name + "  <<  ";
+                for (const auto &issue : obj.second) {
+                    message += issue_to_alert_message(issue.first, issue.second) + ", ";
+                }
+                message.pop_back();
+                message.pop_back(); // remove ,
+                message += ".\n";
+            }
+        }
+
+        bool brim_or_supp = recommend_brim && po_by_support_issues.size() < 2;
+        auto brim_part = " " + (brim_or_supp ? L("or") : L("and")) + " " + L("brim");
+        message += "\n" + L("Consider enabling supports") + (recommend_brim ? brim_part : "") + ".";
+
+        if (objects_isssues.size() > 0) {
+            this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL, message);
+        }
+
+        BOOST_LOG_TRIVIAL(debug) << "psAlertWhenSupportsNeeded - end";
+        this->set_done(psAlertWhenSupportsNeeded);
+    }
 }
 
 // Wipe tower support.
@@ -1206,7 +1365,7 @@ void Print::_make_wipe_tower()
                     volume_to_wipe -= (float)m_config.filament_minimal_purge_on_wipe_tower.get_at(extruder_id);
 
                     // try to assign some infills/objects for the wiping:
-                    volume_to_wipe = layer_tools.wiping_extrusions().mark_wiping_extrusions(*this, current_extruder_id, extruder_id, volume_to_wipe);
+                    volume_to_wipe = layer_tools.wiping_extrusions_nonconst().mark_wiping_extrusions(*this, layer_tools, current_extruder_id, extruder_id, volume_to_wipe);
 
                     // add back the minimal amount toforce on the wipe tower:
                     volume_to_wipe += (float)m_config.filament_minimal_purge_on_wipe_tower.get_at(extruder_id);
@@ -1217,7 +1376,7 @@ void Print::_make_wipe_tower()
                     current_extruder_id = extruder_id;
                 }
             }
-            layer_tools.wiping_extrusions().ensure_perimeters_infills_order(*this);
+            layer_tools.wiping_extrusions_nonconst().ensure_perimeters_infills_order(*this, layer_tools);
             if (&layer_tools == &m_wipe_tower_data.tool_ordering.back() || (&layer_tools + 1)->wipe_tower_partitions == 0)
                 break;
         }

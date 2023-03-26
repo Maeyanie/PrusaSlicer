@@ -2,7 +2,6 @@
 #include "Polyline.hpp"
 #include "Exception.hpp"
 #include "ExPolygon.hpp"
-#include "ExPolygonCollection.hpp"
 #include "Line.hpp"
 #include "Polygon.hpp"
 #include <iostream>
@@ -18,6 +17,14 @@ const Point& Polyline::leftmost_point() const
         	p = &(*it);
     }
     return *p;
+}
+
+double Polyline::length() const
+{
+    double l = 0;
+    for (size_t i = 1; i < this->points.size(); ++ i)
+        l += (this->points[i] - this->points[i - 1]).cast<double>().norm();
+    return l;
 }
 
 Lines Polyline::lines() const
@@ -147,9 +154,8 @@ void Polyline::split_at(const Point &point, Polyline* p1, Polyline* p2) const
     auto  min_point_it = this->points.cbegin();
     Point prev         = this->points.front();
     for (auto it = this->points.cbegin() + 1; it != this->points.cend(); ++ it) {
-        Point proj = point.projection_onto(Line(prev, *it));
-        auto  d2 = (proj - point).cast<double>().squaredNorm();
-        if (d2 < min_dist2) {
+        Point proj;
+        if (double d2 = line_alg::distance_to_squared(Line(prev, *it), point, &proj); d2 < min_dist2) {
 	        min_dist2    = d2;
 	        min_point_it = it;
         }
@@ -197,7 +203,7 @@ BoundingBox get_extents(const Polylines &polylines)
 const Point& leftmost_point(const Polylines &polylines)
 {
     if (polylines.empty())
-        throw Slic3r::InvalidArgument("leftmost_point() called on empty PolylineCollection");
+        throw Slic3r::InvalidArgument("leftmost_point() called on empty Polylines");
     Polylines::const_iterator it = polylines.begin();
     const Point *p = &it->leftmost_point();
     for (++ it; it != polylines.end(); ++it) {
@@ -236,9 +242,8 @@ std::pair<int, Point> foot_pt(const Points &polyline, const Point &pt)
     auto  it = polyline.begin();
     auto  it_proj = polyline.begin();
     for (++ it; it != polyline.end(); ++ it) {
-        Point  foot_pt = pt.projection_onto(Line(prev, *it));
-        double d2 = (foot_pt - pt).cast<double>().squaredNorm();
-        if (d2 < d2_min) {
+        Point foot_pt;
+        if (double d2 = line_alg::distance_to_squared(Line(prev, *it), pt, &foot_pt); d2 < d2_min) {
             d2_min      = d2;
             foot_pt_min = foot_pt;
             it_proj     = it;
@@ -285,6 +290,27 @@ void ThickPolyline::clip_end(double distance)
         distance -= std::sqrt(vec_length_sqr);
     }
     assert(this->width.size() == (this->points.size() - 1) * 2);
+}
+
+void ThickPolyline::start_at_index(int index)
+{
+    assert(index >= 0 && index < this->points.size());
+    assert(this->points.front() == this->points.back() && this->width.front() == this->width.back());
+    if (index != 0 && index != (this->points.size() - 1) && this->points.front() == this->points.back() && this->width.front() == this->width.back()) {
+        this->points.pop_back();
+        assert(this->points.size() * 2 == this->width.size());
+        std::rotate(this->points.begin(), this->points.begin() + index, this->points.end());
+        std::rotate(this->width.begin(), this->width.begin() + 2 * index, this->width.end());
+        this->points.emplace_back(this->points.front());
+    }
+}
+
+double Polyline3::length() const
+{
+    double l = 0;
+    for (size_t i = 1; i < this->points.size(); ++ i)
+        l += (this->points[i] - this->points[i - 1]).cast<double>().norm();
+    return l;
 }
 
 Lines3 Polyline3::lines() const

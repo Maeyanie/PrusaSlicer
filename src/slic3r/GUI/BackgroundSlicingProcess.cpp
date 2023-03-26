@@ -144,7 +144,7 @@ std::string BackgroundSlicingProcess::output_filepath_for_project(const boost::f
 void BackgroundSlicingProcess::process_fff()
 {
 	assert(m_print == m_fff_print);
-    m_print->process();
+	m_print->process();
 	wxCommandEvent evt(m_event_slicing_completed_id);
 	// Post the Slicing Finished message for the G-code viewer to update.
 	// Passing the timestamp 
@@ -165,17 +165,6 @@ void BackgroundSlicingProcess::process_fff()
 	}
 }
 
-static void write_thumbnail(Zipper& zipper, const ThumbnailData& data)
-{
-    size_t png_size = 0;
-    void* png_data = tdefl_write_image_to_png_file_in_memory_ex((const void*)data.pixels.data(), data.width, data.height, 4, &png_size, MZ_DEFAULT_LEVEL, 1);
-    if (png_data != nullptr)
-    {
-        zipper.add_entry("thumbnail/thumbnail" + std::to_string(data.width) + "x" + std::to_string(data.height) + ".png", (const std::uint8_t*)png_data, png_size);
-        mz_free(png_data);
-    }
-}
-
 void BackgroundSlicingProcess::process_sla()
 {
     assert(m_print == m_sla_print);
@@ -189,12 +178,7 @@ void BackgroundSlicingProcess::process_sla()
             ThumbnailsList thumbnails = this->render_thumbnails(
             	ThumbnailsParams{current_print()->full_print_config().option<ConfigOptionPoints>("thumbnails")->values, true, true, true, true});
 
-            Zipper zipper(export_path);
-            m_sla_archive.export_print(zipper, *m_sla_print);																											         // true, false, true, true); // renders also supports and pad
-			for (const ThumbnailData& data : thumbnails)
-                if (data.is_valid())
-                    write_thumbnail(zipper, data);
-            zipper.finalize();
+            m_sla_print->export_print(export_path, thumbnails);
 
             m_print->set_status(100, (boost::format(_utf8(L("Masked SLA file exported to %1%"))) % export_path).str());
         } else if (! m_upload_job.empty()) {
@@ -211,6 +195,12 @@ void BackgroundSlicingProcess::thread_proc()
 {
 	set_current_thread_name("slic3r_BgSlcPcs");
     name_tbb_thread_pool_threads_set_locale();
+
+    // Set "C" locales and enforce OSX QoS level on all threads entering an arena.
+    // The cost of the callback is quite low: The callback is called once per thread
+    // entering a parallel loop and the callback is guarded with a thread local
+    // variable to be executed just once.
+	TBBLocalesSetter setter;
 
 	assert(m_print != nullptr);
 	assert(m_print == m_fff_print || m_print == m_sla_print);
@@ -246,6 +236,9 @@ void BackgroundSlicingProcess::thread_proc()
 				(m_state == STATE_CANCELED) ? SlicingProcessCompletedEvent::Cancelled :
 				exception ? SlicingProcessCompletedEvent::Error : SlicingProcessCompletedEvent::Finished, exception);
         	wxQueueEvent(GUI::wxGetApp().mainframe->m_plater, evt.Clone());
+        	// Cancelled by the user, not internally, thus cleanup() was not called yet.
+        	// Otherwise cleanup() is called from Print::apply()
+        	m_print->cleanup();
         }
 	    m_print->restart();
 		lck.unlock();
@@ -739,13 +732,7 @@ void BackgroundSlicingProcess::prepare_upload()
         
         ThumbnailsList thumbnails = this->render_thumbnails(
         	ThumbnailsParams{current_print()->full_print_config().option<ConfigOptionPoints>("thumbnails")->values, true, true, true, true});
-																												 // true, false, true, true); // renders also supports and pad
-        Zipper zipper{source_path.string()};
-        m_sla_archive.export_print(zipper, *m_sla_print, m_upload_job.upload_data.upload_path.string());
-        for (const ThumbnailData& data : thumbnails)
-	        if (data.is_valid())
-	            write_thumbnail(zipper, data);
-        zipper.finalize();
+        m_sla_print->export_print(source_path.string(),thumbnails, m_upload_job.upload_data.upload_path.filename().string());
     }
 
     m_print->set_status(100, (boost::format(_utf8(L("Scheduling upload to `%1%`. See Window -> Print Host Upload Queue"))) % m_upload_job.printhost->get_host()).str());

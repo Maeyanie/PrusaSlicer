@@ -1,7 +1,6 @@
 #include "ArrangeJob.hpp"
 
 #include "libslic3r/BuildVolume.hpp"
-#include "libslic3r/MTUtils.hpp"
 #include "libslic3r/Model.hpp"
 
 #include "slic3r/GUI/Plater.hpp"
@@ -13,6 +12,9 @@
 #include "slic3r/GUI/format.hpp"
 
 #include "libnest2d/common.hpp"
+
+#include <numeric>
+#include <random>
 
 namespace Slic3r { namespace GUI {
 
@@ -162,48 +164,49 @@ void ArrangeJob::prepare()
     wxGetKeyState(WXK_SHIFT) ? prepare_selected() : prepare_all();
 }
 
-void ArrangeJob::on_exception(const std::exception_ptr &eptr)
+void ArrangeJob::process(Ctl &ctl)
 {
-    try {
-        if (eptr)
-            std::rethrow_exception(eptr);
-    } catch (libnest2d::GeometryException &) {
-        show_error(m_plater, _(L("Could not arrange model objects! "
-                                 "Some geometries may be invalid.")));
-    } catch (std::exception &) {
-        PlaterJob::on_exception(eptr);
-    }
-}
+    static const auto arrangestr = _u8L("Arranging");
 
-void ArrangeJob::process()
-{
-    static const auto arrangestr = _(L("Arranging"));
+    arrangement::ArrangeParams params;
+    arrangement::ArrangeBed bed;
+    ctl.call_on_main_thread([this, &params, &bed]{
+           prepare();
+           params = get_arrange_params(m_plater);
+           get_bed_shape(*m_plater->config(), bed);
+    }).wait();
 
-    arrangement::ArrangeParams params = get_arrange_params(m_plater);
+    auto count  = unsigned(m_selected.size() + m_unprintable.size());
 
-    auto count = unsigned(m_selected.size() + m_unprintable.size());
-    Points bedpts = get_bed_shape(*m_plater->config());
-    
-    params.stopcondition = [this]() { return was_canceled(); };
-    
-    params.progressind = [this, count](unsigned st) {
+    if (count == 0) // Should be taken care of by plater, but doesn't hurt
+        return;
+
+    ctl.update_status(0, arrangestr);
+
+    params.stopcondition = [&ctl]() { return ctl.was_canceled(); };
+
+    params.progressind = [this, count, &ctl](unsigned st) {
         st += m_unprintable.size();
-        if (st > 0) update_status(int(count - st), arrangestr);
+        if (st > 0) ctl.update_status(int(count - st) * 100 / status_range(), arrangestr);
     };
 
-    arrangement::arrange(m_selected, m_unselected, bedpts, params);
+    ctl.update_status(0, arrangestr);
 
-    params.progressind = [this, count](unsigned st) {
-        if (st > 0) update_status(int(count - st), arrangestr);
+    arrangement::arrange(m_selected, m_unselected, bed, params);
+
+    params.progressind = [this, count, &ctl](unsigned st) {
+        if (st > 0) ctl.update_status(int(count - st) * 100 / status_range(), arrangestr);
     };
 
-    arrangement::arrange(m_unprintable, {}, bedpts, params);
+    arrangement::arrange(m_unprintable, {}, bed, params);
 
     // finalize just here.
-    update_status(int(count),
-                  was_canceled() ? _(L("Arranging canceled."))
-                                   : _(L("Arranging done.")));
+    ctl.update_status(int(count) * 100 / status_range(), ctl.was_canceled() ?
+                                      _u8L("Arranging canceled.") :
+                                      _u8L("Arranging done."));
 }
+
+ArrangeJob::ArrangeJob() : m_plater{wxGetApp().plater()} {}
 
 static std::string concat_strings(const std::set<std::string> &strings,
                                   const std::string &delim = "\n")
@@ -215,10 +218,21 @@ static std::string concat_strings(const std::set<std::string> &strings,
         });
 }
 
-void ArrangeJob::finalize() {
-    // Ignore the arrange result if aborted.
-    if (was_canceled()) return;
-    
+void ArrangeJob::finalize(bool canceled, std::exception_ptr &eptr) {
+    try {
+        if (eptr)
+            std::rethrow_exception(eptr);
+    } catch (libnest2d::GeometryException &) {
+        show_error(m_plater, _(L("Could not arrange model objects! "
+                                 "Some geometries may be invalid.")));
+        eptr = nullptr;
+    } catch(...) {
+        eptr = std::current_exception();
+    }
+
+    if (canceled || eptr)
+        return;
+
     // Unprintable items go to the last virtual bed
     int beds = 0;
     
@@ -234,7 +248,9 @@ void ArrangeJob::finalize() {
     
     // Move the unprintable items to the last virtual bed.
     for (ArrangePolygon &ap : m_unprintable) {
-        ap.bed_idx += beds + 1;
+        if (ap.bed_idx >= 0)
+            ap.bed_idx += beds + 1;
+
         ap.apply();
     }
 
@@ -250,8 +266,6 @@ void ArrangeJob::finalize() {
             _L("Arrangement ignored the following objects which can't fit into a single bed:\n%s"),
             concat_strings(names, "\n")));
     }
-
-    Job::finalize();
 }
 
 std::optional<arrangement::ArrangePolygon>
@@ -278,11 +292,29 @@ arrangement::ArrangePolygon get_arrange_poly(ModelInstance *inst,
 arrangement::ArrangeParams get_arrange_params(Plater *p)
 {
     const GLCanvas3D::ArrangeSettings &settings =
-        static_cast<const GLCanvas3D*>(p->canvas3D())->get_arrange_settings();
+        p->canvas3D()->get_arrange_settings();
 
     arrangement::ArrangeParams params;
     params.allow_rotations  = settings.enable_rotation;
     params.min_obj_distance = scaled(settings.distance);
+    params.min_bed_distance = scaled(settings.distance_from_bed);
+
+    arrangement::Pivots pivot = arrangement::Pivots::Center;
+
+    int pivot_max = static_cast<int>(arrangement::Pivots::TopRight);
+    if (settings.alignment < 0) {
+        pivot = arrangement::Pivots::Center;
+    } else if (settings.alignment > pivot_max) {
+        // means it should be random
+        std::random_device rd{};
+        std::mt19937 rng(rd());
+        std::uniform_int_distribution<std::mt19937::result_type> dist(0, pivot_max);
+        pivot = static_cast<arrangement::Pivots>(dist(rng));
+    } else {
+        pivot = static_cast<arrangement::Pivots>(settings.alignment);
+    }
+
+    params.alignment = pivot;
 
     return params;
 }

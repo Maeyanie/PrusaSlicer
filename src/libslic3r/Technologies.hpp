@@ -12,8 +12,6 @@
 #define ENABLE_RENDER_SELECTION_CENTER 0
 // Shows an imgui dialog with camera related data
 #define ENABLE_CAMERA_STATISTICS 0
-// Render the picking pass instead of the main scene (use [T] key to toggle between regular rendering and picking pass only rendering)
-#define ENABLE_RENDER_PICKING_PASS 0
 // Enable extracting thumbnails from selected gcode and save them as png files
 #define ENABLE_THUMBNAIL_GENERATOR_DEBUG 0
 // Disable synchronization of unselected instances
@@ -26,25 +24,39 @@
 #define ENABLE_GCODE_VIEWER_DATA_CHECKING 0
 // Enable project dirty state manager debug window
 #define ENABLE_PROJECT_DIRTY_STATE_DEBUG_WINDOW 0
+// Disable using instanced models to render options in gcode preview
+#define DISABLE_GCODEVIEWER_INSTANCED_MODELS 1
+// Enable Measure Gizmo debug window
+#define ENABLE_MEASURE_GIZMO_DEBUG 0
+// Enable scene raycast picking debug window
+#define ENABLE_RAYCAST_PICKING_DEBUG 0
+// Shows an imgui dialog with GLModel statistics data
+#define ENABLE_GLMODEL_STATISTICS 0
 
 
 // Enable rendering of objects using environment map
 #define ENABLE_ENVIRONMENT_MAP 0
 // Enable smoothing of objects normals
 #define ENABLE_SMOOTH_NORMALS 0
-// Enable rendering markers for options in preview as fixed screen size points
-#define ENABLE_FIXED_SCREEN_SIZE_POINT_MARKERS 1
 
 
-//================
-// 2.4.1.rc techs
-//================
-#define ENABLE_2_4_1_RC 1
+//====================
+// 2.6.0.alpha1 techs
+//====================
+#define ENABLE_2_6_0_ALPHA1 1
 
-// Enable detection of layers for spiral vase prints
-#define ENABLE_SPIRAL_VASE_LAYERS (1 && ENABLE_2_4_1_RC)
-// Enable correction of toolpaths when z offset is set
-#define ENABLE_Z_OFFSET_CORRECTION (1 && ENABLE_2_4_1_RC)
+// Enable OpenGL ES
+#define ENABLE_OPENGL_ES 0
+// Enable OpenGL core profile context (tested against Mesa 20.1.8 on Windows)
+#define ENABLE_GL_CORE_PROFILE (1 && !ENABLE_OPENGL_ES)
+// Enable OpenGL debug messages using debug context
+#define ENABLE_OPENGL_DEBUG_OPTION (1 && ENABLE_GL_CORE_PROFILE)
+// Enable editing volumes transformation in world coordinates and instances in local coordinates
+#define ENABLE_WORLD_COORDINATE (1 && ENABLE_2_6_0_ALPHA1)
+// Shows an imgui dialog containing the matrices of the selected volumes
+#define ENABLE_WORLD_COORDINATE_DEBUG (0 && ENABLE_WORLD_COORDINATE)
+// Enable alternative version of file_wildcards()
+#define ENABLE_ALTERNATIVE_FILE_WILDCARDS_GENERATOR (1 && ENABLE_2_6_0_ALPHA1)
 
 
 #endif // _prusaslicer_technologies_h_

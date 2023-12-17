@@ -1,3 +1,8 @@
+///|/ Copyright (c) Prusa Research 2017 - 2023 Oleksandra Iushchenko @YuSanka, Enrico Turri @enricoturri1966, Lukáš Matěna @lukasmatena, Vojtěch Bubník @bubnikv, David Kocík @kocikdav, Vojtěch Král @vojtechkral
+///|/ Copyright (c) 2019 John Drake @foxox
+///|/
+///|/ PrusaSlicer is released under the terms of the AGPLv3 or higher
+///|/
 #ifndef slic3r_PresetBundle_hpp_
 #define slic3r_PresetBundle_hpp_
 
@@ -77,6 +82,8 @@ public:
         std::vector<std::string> printers;
     };
     ObsoletePresets             obsolete_presets;
+
+    std::set<std::string>       tmp_installed_presets;
 
     bool                        has_defauls_only() const 
         { return prints.has_defaults_only() && filaments.has_defaults_only() && printers.has_defaults_only(); }
@@ -174,6 +181,8 @@ private:
     std::vector<std::string>    merge_presets(PresetBundle &&other);
     // Update renamed_from and alias maps of system profiles.
     void 						update_system_maps();
+    // Update alias maps
+    void 						update_alias_maps();
 
     // Set the is_visible flag for filaments and sla materials,
     // apply defaults based on enabled printers when no filaments/materials are installed.

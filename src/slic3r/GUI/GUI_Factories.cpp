@@ -892,7 +892,7 @@ wxMenuItem* MenuFactory::append_menu_item_simplify(wxMenu* menu)
 
 void MenuFactory::append_menu_item_export_stl(wxMenu* menu)
 {
-    append_menu_item(menu, wxID_ANY, _L("Export as STL/OBJ") + dots, "",
+    append_menu_item(menu, wxID_ANY, _L("Export as STL/OBJ/DRC") + dots, "",
         [](wxCommandEvent&) { plater()->export_stl_obj(false, true); }, "", nullptr,
         []() {
             const Selection& selection = plater()->canvas3D()->get_selection();

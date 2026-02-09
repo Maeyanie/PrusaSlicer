@@ -4,6 +4,7 @@
 ///|/
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/Utils.hpp"
+#include "libslic3r/Format/DRC.hpp"
 #include "AppConfig.hpp"
 #include "Exception.hpp"
 #include "LocalesUtils.hpp"
@@ -97,6 +98,8 @@ void AppConfig::set_defaults()
             set("associate_3mf", "0");
         if (get("associate_stl").empty())
             set("associate_stl", "0");
+        if (get("associate_drc").empty())
+            set("associate_drc", "0");
 
         if (get("suppress_round_corners").empty())
             set("suppress_round_corners", "1");
@@ -243,6 +246,9 @@ void AppConfig::set_defaults()
 
     if (get("angle_precision").empty())
         set("angle_precision", "1.");
+
+    if (get("drc_bits").empty())
+        set("drc_bits", DRC_BITS_DEFAULT_STR);
 
     // Remove legacy window positions/sizes
     erase("", "main_frame_maximized");

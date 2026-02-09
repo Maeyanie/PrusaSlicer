@@ -66,6 +66,7 @@
 #include "libslic3r/Format/STL.hpp"
 #include "libslic3r/Format/AMF.hpp"
 #include "libslic3r/Format/3mf.hpp"
+#include "libslic3r/Format/DRC.hpp"
 #include "libslic3r/Format/OBJ.hpp"
 #include "libslic3r/GCode/ThumbnailData.hpp"
 #include "libslic3r/Model.hpp"
@@ -5235,7 +5236,7 @@ void ProjectDropDialog::on_dpi_changed(const wxRect& suggested_rect)
 
 bool Plater::load_files(const wxArrayString& filenames, bool delete_after_load/*=false*/)
 {
-    const std::regex pattern_drop(".*[.](stl|obj|amf|3mf|prusa|step|stp|zip|printRequest)", std::regex::icase);
+    const std::regex pattern_drop(".*[.](stl|obj|amf|3mf|prusa|step|stp|zip|printRequest|drc)", std::regex::icase);
     const std::regex pattern_gcode_drop(".*[.](gcode|g|bgcode|bgc)", std::regex::icase);
 
     std::vector<fs::path> paths;
@@ -6209,6 +6210,12 @@ void Plater::export_stl_obj(bool extended, bool selection_only)
         Slic3r::store_stl(path_u8.c_str(), &mesh, true);
     else if (path.Lower().EndsWith(".obj"))
         Slic3r::store_obj(path_u8.c_str(), &mesh);
+    else if (path.Lower().EndsWith(".drc")) {
+        int bits = DRC_BITS_DEFAULT;
+        AppConfig* app_config = wxGetApp().app_config;
+        if (app_config) bits = stoi(app_config->get("drc_bits"));
+        Slic3r::store_drc(path_u8.c_str(), &mesh, bits);
+    }
 }
 
 namespace {

@@ -487,12 +487,12 @@ struct FileWildcards {
 static const FileWildcards file_wildcards_by_type[FT_SIZE] = {
     /* FT_STL */     { "STL files"sv,       { ".stl"sv } },
     /* FT_OBJ */     { "OBJ files"sv,       { ".obj"sv } },
-    /* FT_OBJECT */  { "Object files"sv,    { ".stl"sv, ".obj"sv } },
+    /* FT_OBJECT */  { "Object files"sv,    { ".stl"sv, ".obj"sv, ".drc"sv } },
     /* FT_STEP */    { "STEP files"sv,      { ".stp"sv, ".step"sv } },    
     /* FT_AMF */     { "AMF files"sv,       { ".amf"sv, ".zip.amf"sv, ".xml"sv } },
     /* FT_3MF */     { "3MF files"sv,       { ".3mf"sv } },
     /* FT_GCODE */   { "G-code files"sv,    { ".gcode"sv, ".gco"sv, ".bgcode"sv, ".bgc"sv, ".g"sv, ".ngc"sv } },
-    /* FT_MODEL */   { "Known files"sv,     { ".stl"sv, ".obj"sv, ".3mf"sv, ".amf"sv, ".zip.amf"sv, ".xml"sv, ".step"sv, ".stp"sv, ".svg"sv } },
+    /* FT_MODEL */   { "Known files"sv,     { ".stl"sv, ".obj"sv, ".3mf"sv, ".amf"sv, ".zip.amf"sv, ".xml"sv, ".step"sv, ".stp"sv, ".svg"sv, ".drc"sv } },
     /* FT_PROJECT */ { "Project files"sv,   { ".3mf"sv, ".amf"sv, ".zip.amf"sv } },
     /* FT_FONTS */   { "Font files"sv,      { ".ttc"sv, ".ttf"sv } },
     /* FT_GALLERY */ { "Known files"sv,     { ".stl"sv, ".obj"sv } },
@@ -1497,6 +1497,8 @@ bool GUI_App::on_init_inner()
 #ifdef __WXMSW__ 
         if (app_config->get_bool("associate_3mf"))
             associate_3mf_files();
+        if (app_config->get_bool("associate_drc"))
+            associate_drc_files();
         if (app_config->get_bool("associate_stl"))
             associate_stl_files();
 #endif // __WXMSW__
@@ -2309,7 +2311,7 @@ void GUI_App::import_model(wxWindow *parent, wxArrayString& input_files) const
 {
     input_files.Clear();
     wxFileDialog dialog(parent ? parent : GetTopWindow(),
-        _L("Choose one or more files (STL/3MF/STEP/OBJ/AMF/SVG):"),
+        _L("Choose one or more files (STL/3MF/STEP/OBJ/AMF/SVG/DRC):"),
         from_u8(app_config->get_last_dir()), "",
         file_wildcards(FT_MODEL), wxFD_OPEN | wxFD_MULTIPLE | wxFD_FILE_MUST_EXIST);
 
@@ -2881,6 +2883,8 @@ void GUI_App::open_preferences(const std::string& highlight_option /*= std::stri
     if (is_editor()) {
         if (app_config->get_bool("associate_3mf"))
             associate_3mf_files();
+        if (app_config->get_bool("associate_drc"))
+            associate_drc_files();
         if (app_config->get_bool("associate_stl"))
             associate_stl_files();
     }
@@ -3714,6 +3718,11 @@ bool GUI_App::open_login_browser_with_dialog(const wxString& url, wxWindow* pare
 void GUI_App::associate_3mf_files()
 {
     associate_file_type(L".3mf", L"Prusa.Slicer.1", L"PrusaSlicer", true);
+}
+
+void GUI_App::associate_drc_files()
+{
+    associate_file_type(L".drc", L"Prusa.Slicer.1", L"PrusaSlicer", true);
 }
 
 void GUI_App::associate_stl_files()

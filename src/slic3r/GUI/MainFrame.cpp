@@ -1495,7 +1495,7 @@ void MainFrame::init_menubar_as_editor()
         fileMenu->AppendSeparator();
 
         wxMenu* import_menu = new wxMenu();
-        append_menu_item(import_menu, wxID_ANY, _L("Import STL/3MF/STEP/OBJ/AM&F") + dots + "\tCtrl+I", _L("Load a model"),
+        append_menu_item(import_menu, wxID_ANY, _L("Import STL/3MF/STEP/OBJ/DRC/AM&F") + dots + "\tCtrl+I", _L("Load a model"),
             [this](wxCommandEvent&) { if (m_plater) m_plater->add_model(); }, "import_plater", nullptr,
             [this](){return m_plater != nullptr; }, this);
         
@@ -1537,10 +1537,10 @@ void MainFrame::init_menubar_as_editor()
 			[this](wxCommandEvent&) { if (m_plater) m_plater->export_gcode(true); }, "export_to_sd", nullptr,
 			[this]() {return can_export_gcode_sd(); }, this);
         export_menu->AppendSeparator();
-        append_menu_item(export_menu, wxID_ANY, _L("Export Plate as &STL/OBJ") + dots, _L("Export current plate as STL/OBJ"),
+        append_menu_item(export_menu, wxID_ANY, _L("Export Plate as &STL/OBJ/DRC") + dots, _L("Export current plate as STL/OBJ/DRC"),
             [this](wxCommandEvent&) { if (m_plater) m_plater->export_stl_obj(); }, "export_plater", nullptr,
             [this](){return can_export_model(); }, this);
-        append_menu_item(export_menu, wxID_ANY, _L("Export Plate as STL/OBJ &Including Supports") + dots, _L("Export current plate as STL/OBJ including supports"),
+        append_menu_item(export_menu, wxID_ANY, _L("Export Plate as STL/OBJ/DRC &Including Supports") + dots, _L("Export current plate as STL/OBJ/DRC including supports"),
             [this](wxCommandEvent&) { if (m_plater) m_plater->export_stl_obj(true); }, "export_plater", nullptr,
             [this](){return can_export_supports(); }, this);
         export_menu->AppendSeparator();

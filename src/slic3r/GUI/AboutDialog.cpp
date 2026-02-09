@@ -110,6 +110,7 @@ void CopyrightsDialog::fill_entries()
         { "Boost"           , "1998-2005 Beman Dawes, David Abrahams; "
                               "2004 - 2007 Rene Rivera"                     , "https://www.boost.org/" },
         { "Clipper"         , "2010-2015 Angus Johnson "                    , "http://www.angusj.com " },
+        { "Draco"           , "2017-2026 The Draco authors"                 , "https://google.github.io/draco/" },
         { "GLEW (The OpenGL Extension Wrangler Library)", 
                               "2002 - 2007, Milan Ikits; "
                               "2002 - 2007, Marcelo E.Magallon; "

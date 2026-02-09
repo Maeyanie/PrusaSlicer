@@ -135,6 +135,8 @@ set(SLIC3R_SOURCES
     Format/3mf.hpp
     Format/AMF.cpp
     Format/AMF.hpp
+    Format/DRC.cpp
+    Format/DRC.hpp
     Format/OBJ.cpp
     Format/OBJ.hpp
     Format/objparser.cpp
@@ -612,12 +614,14 @@ target_include_directories(libslic3r PUBLIC ${EXPAT_INCLUDE_DIRS})
 
 find_package(JPEG REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(draco REQUIRED)
 
 target_link_libraries(libslic3r PRIVATE
     libnest2d
     libcereal
     boost_libs
     clipper
+    draco::draco
     libexpat
     glu-libtess
     qhull

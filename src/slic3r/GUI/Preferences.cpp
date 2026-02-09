@@ -14,6 +14,7 @@
 #include "I18N.hpp"
 #include "format.hpp"
 #include "libslic3r/AppConfig.hpp"
+#include "libslic3r/Format/DRC.hpp"
 #include <wx/notebook.h>
 #include "Notebook.hpp"
 #include "ButtonsDescription.hpp"
@@ -330,6 +331,11 @@ void PreferencesDialog::build()
 			L("Associate .3mf files to PrusaSlicer"),
 			L("If enabled, sets PrusaSlicer as default application to open .3mf files."),
 			app_config->get_bool("associate_3mf"));
+
+		append_bool_option(m_optgroup_general, "associate_drc",
+			L("Associate .drc files to PrusaSlicer"),
+			L("If enabled, sets PrusaSlicer as default application to open .drc files."),
+			app_config->get_bool("associate_drc"));
 
 		append_bool_option(m_optgroup_general, "associate_stl",
 			L("Associate .stl files to PrusaSlicer"),

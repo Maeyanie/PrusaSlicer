@@ -97,6 +97,8 @@ set(SLIC3R_SOURCES
     FileParserError.hpp
     Feature/FuzzySkin/FuzzySkin.cpp
     Feature/FuzzySkin/FuzzySkin.hpp
+    Feature/FullSpectrum/VirtualExtruder.cpp
+    Feature/FullSpectrum/VirtualExtruder.hpp
     Fill/Fill.cpp
     Fill/Fill3DHoneycomb.cpp
     Fill/Fill3DHoneycomb.hpp
@@ -421,8 +423,14 @@ set(SLIC3R_SOURCES
     ${OpenVDBUtils_SOURCES}
     SLA/Pad.hpp
     SLA/Pad.cpp
+    SLA/PrinterCorrections.hpp
+    SLA/PrinterCorrections.cpp
     SLA/SupportTreeBuilder.hpp
     SLA/SupportTreeMesher.hpp
+    SLA/SupportTreeSlicer.hpp
+    SLA/SupportTreeSlicer.cpp
+    SLA/SupportSlicesCache.hpp
+    SLA/SupportSlicesCache.cpp
     SLA/SupportTreeMesher.cpp
     SLA/SupportTreeUtils.hpp
     SLA/SupportTreeUtilsLegacy.hpp
@@ -456,7 +464,9 @@ set(SLIC3R_SOURCES
     SLA/BranchingTreeSLA.hpp
     SLA/BranchingTreeSLA.cpp
     SLA/ZCorrection.hpp
-    SLA/ZCorrection.cpp    
+    SLA/ZCorrection.cpp
+    SLA/Workflows.hpp
+    SLA/Workflows.cpp
     SLA/SupportIslands/EvaluateNeighbor.cpp
     SLA/SupportIslands/EvaluateNeighbor.hpp
     SLA/SupportIslands/ExpandNeighbor.cpp
@@ -617,6 +627,7 @@ find_package(nlohmann_json REQUIRED)
 find_package(draco REQUIRED)
 
 target_link_libraries(libslic3r PRIVATE
+    sla_time_estimate
     libnest2d
     libcereal
     boost_libs
@@ -650,6 +661,7 @@ target_link_libraries(libslic3r PUBLIC
     ankerl
     boost_headeronly
     libseqarrange
+    prusa_fdm_mixer
 )
 
 if (APPLE)
